@@ -78,6 +78,7 @@ fn create_market(env: &Env, client: &PredictIQClient, token: &Address) -> u64 {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 200,
+        strike_price: None,
     };
     client.create_market(
         &Address::generate(env),

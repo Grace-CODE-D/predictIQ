@@ -120,6 +120,7 @@ mod tests {
             min_responses: None,
             max_staleness_seconds: 3600,
             max_confidence_bps: 100,
+        strike_price: None,
         };
         client.create_market(creator, &String::from_str(e, "M"), &options, &1000, &2000, &oracle_cfg, &MarketTier::Basic, &token, &0, &0)
     }

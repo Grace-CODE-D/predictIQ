@@ -53,6 +53,7 @@ fn test_full_disputed_lifecycle() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     env.ledger().with_mut(|li| li.timestamp = 1000);
@@ -88,7 +89,7 @@ fn test_full_disputed_lifecycle() {
     env.ledger().with_mut(|li| li.timestamp = 3001); // Past resolution deadline
     
     // Set oracle result as admin
-    client.set_oracle_result(&market_id, &1);
+    client.set_oracle_result(&market_id, &0, &1);
     client.attempt_oracle_resolution(&market_id);
     
     assert_market_status(&client, market_id, MarketStatus::PendingResolution);

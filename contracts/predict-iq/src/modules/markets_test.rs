@@ -35,6 +35,7 @@ fn test_create_market_basic() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -71,6 +72,7 @@ fn test_create_market_with_single_option_fails() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -106,6 +108,7 @@ fn test_create_market_with_too_many_outcomes() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -143,6 +146,7 @@ fn test_create_market_deadline_in_past() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -178,6 +182,7 @@ fn test_create_market_resolution_before_deadline() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -213,6 +218,7 @@ fn test_market_id_increments() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -310,6 +316,7 @@ fn test_market_tiers() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -380,6 +387,7 @@ fn test_prune_market_before_grace_period() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -422,6 +430,7 @@ fn test_prune_market_after_grace_period() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -467,6 +476,7 @@ fn test_prune_unresolved_market_fails() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -507,6 +517,7 @@ fn test_prune_market_with_unclaimed_rewards_fails() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -559,6 +570,7 @@ fn test_prune_market_after_all_rewards_claimed() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -612,6 +624,7 @@ fn test_permissionless_prune_by_non_admin() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -656,6 +669,7 @@ fn make_oracle_config(env: &Env) -> OracleConfig {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     }
 }
 

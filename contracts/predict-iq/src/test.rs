@@ -93,6 +93,7 @@ fn create_test_market(
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 200,
+        strike_price: None,
     };
 
     client.create_market(
@@ -129,6 +130,7 @@ fn make_stored_market(e: &Env, id: u64) -> types::Market {
             min_responses: Some(1),
             max_staleness_seconds: 3600,
             max_confidence_bps: 200,
+        strike_price: None,
         },
         total_staked: 0,
         payout_mode: types::PayoutMode::Pull,
@@ -176,12 +178,16 @@ fn test_market_creation_fails_without_deposit() {
             min_responses: 1,
             max_staleness_seconds: 300,
             max_confidence_bps: 200,
+        strike_price: None,
             min_responses: Some(1),
             max_staleness_seconds: 3600,
             max_confidence_bps: 200,
+        strike_price: None,
         max_staleness_seconds: 3600,
         max_confidence_bps: 200,
+        strike_price: None,
         max_confidence_bps: 100,
+        strike_price: None,
         },
         &types::MarketTier::Basic,
         &native_token,
@@ -1299,10 +1305,13 @@ fn test_create_conditional_market_parent_not_resolved() {
         min_responses: 1,
         max_staleness_seconds: 300,
         max_confidence_bps: 200,
+        strike_price: None,
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 200,
+        strike_price: None,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let result = client.try_create_market(
@@ -1354,10 +1363,13 @@ fn test_create_conditional_market_parent_wrong_outcome() {
         min_responses: 1,
         max_staleness_seconds: 300,
         max_confidence_bps: 200,
+        strike_price: None,
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 200,
+        strike_price: None,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let result = client.try_create_market(
@@ -1409,10 +1421,13 @@ fn test_create_conditional_market_success() {
         min_responses: 1,
         max_staleness_seconds: 300,
         max_confidence_bps: 200,
+        strike_price: None,
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 200,
+        strike_price: None,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let child_id = client.create_market(
@@ -1473,10 +1488,13 @@ fn test_place_bet_on_conditional_market_parent_not_resolved() {
         min_responses: 1,
         max_staleness_seconds: 300,
         max_confidence_bps: 200,
+        strike_price: None,
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 200,
+        strike_price: None,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let child_id = client.create_market(
@@ -1537,10 +1555,13 @@ fn test_place_bet_on_conditional_market_parent_wrong_outcome() {
         min_responses: 1,
         max_staleness_seconds: 300,
         max_confidence_bps: 200,
+        strike_price: None,
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 200,
+        strike_price: None,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let child_id = client.create_market(
@@ -1622,10 +1643,13 @@ fn test_multi_level_conditional_markets() {
         min_responses: 1,
         max_staleness_seconds: 300,
         max_confidence_bps: 200,
+        strike_price: None,
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 200,
+        strike_price: None,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let level2_id = client.create_market(
@@ -1695,10 +1719,13 @@ fn test_create_conditional_market_invalid_parent_outcome_idx() {
         min_responses: 1,
         max_staleness_seconds: 300,
         max_confidence_bps: 200,
+        strike_price: None,
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 200,
+        strike_price: None,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let result = client.try_create_market(
@@ -2087,6 +2114,7 @@ fn test_dispute_deadline_extension_is_one_time_and_idempotent() {
             min_responses: Some(1),
             max_staleness_seconds: 3600,
             max_confidence_bps: 200,
+        strike_price: None,
         },
         &types::MarketTier::Basic,
         &native_token,
@@ -2440,6 +2468,7 @@ mod dispute_resolution_tests {
                 min_responses: Some(1),
                 max_staleness_seconds: 3600,
                 max_confidence_bps: 200,
+        strike_price: None,
             },
             &MarketTier::Basic,
             &token,

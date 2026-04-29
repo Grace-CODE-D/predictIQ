@@ -61,6 +61,7 @@ fn test_stake_conservation_after_market_creation() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -103,6 +104,7 @@ fn test_stake_conservation_single_bet() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -149,6 +151,7 @@ fn test_stake_conservation_multiple_bets_same_outcome() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -199,6 +202,7 @@ fn test_stake_conservation_multiple_bets_different_outcomes() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -253,6 +257,7 @@ fn test_stake_conservation_cancellation_refunds() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -312,6 +317,7 @@ fn test_stake_conservation_partial_refunds() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -369,6 +375,7 @@ fn test_stake_conservation_multiple_cancellations() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -434,6 +441,7 @@ fn test_stake_conservation_resolution_winner_payouts() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -488,6 +496,7 @@ fn test_stake_conservation_resolution_multiple_winners() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -551,6 +560,7 @@ fn test_stake_conservation_three_outcome_market() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -606,6 +616,7 @@ fn test_stake_conservation_boundary_values() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -668,6 +679,7 @@ fn test_stake_conservation_valid_bet_maintains_conservation() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);
@@ -714,6 +726,7 @@ fn test_stake_conservation_multiple_outcome_refunds() {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     };
 
     let token = Address::generate(&env);

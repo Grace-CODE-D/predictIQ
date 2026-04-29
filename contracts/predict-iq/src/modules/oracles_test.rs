@@ -37,6 +37,7 @@ fn test_config(e: &Env) -> OracleConfig {
         min_responses: 1,
         max_staleness_seconds: 300,
         max_confidence_bps: 200,
+        strike_price: None,
     }
 }
 
@@ -47,6 +48,7 @@ fn create_config(e: &Env, max_confidence_bps: u64) -> OracleConfig {
         min_responses: 1,
         max_staleness_seconds: 3600,
         max_confidence_bps,
+        strike_price: None,
     }
 }
 
@@ -556,6 +558,7 @@ mod pyth_integration_tests {
             min_responses: 1,
             max_staleness_seconds: 3600,
             max_confidence_bps: 500,
+        strike_price: None,
         };
 
         let result = fetch_pyth_price(&e, &config);
@@ -579,6 +582,7 @@ mod pyth_integration_tests {
             min_responses: 1,
             max_staleness_seconds: 3600,
             max_confidence_bps: 500,
+        strike_price: None,
         };
 
         let result = fetch_pyth_price(&e, &config);
@@ -614,6 +618,7 @@ mod pyth_integration_tests {
             min_responses: 1,
             max_staleness_seconds: 3600,
             max_confidence_bps: 500,
+        strike_price: None,
         };
         let token = Address::generate(e);
         let options = Vec::from_array(e, [
@@ -700,6 +705,7 @@ mod pyth_integration_tests {
             min_responses: 1,
             max_staleness_seconds: 3600,
             max_confidence_bps: 500,
+        strike_price: None,
         };
         let token = Address::generate(&e);
         let options = Vec::from_array(&e, [
@@ -753,6 +759,7 @@ mod pyth_integration_tests {
             min_responses: 1,
             max_staleness_seconds: 60, // only 60s tolerance
             max_confidence_bps: 500,
+        strike_price: None,
         };
 
         // Set ledger timestamp far ahead so publish_time=1_700_000_000 is stale.

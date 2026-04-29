@@ -55,6 +55,7 @@ fn oracle_config(env: &Env) -> OracleConfig {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 100,
+        strike_price: None,
     }
 }
 

@@ -61,6 +61,7 @@ fn create_oracle_config(env: &Env) -> predict_iq::types::OracleConfig {
         min_responses: Some(1),
         max_staleness_seconds: 3600,
         max_confidence_bps: 200,
+        strike_price: None,
     }
 }
 
