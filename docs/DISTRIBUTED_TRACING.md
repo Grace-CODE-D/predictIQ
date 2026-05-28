@@ -23,6 +23,31 @@ All services support the following environment variables:
 - `OTEL_TRACE_SAMPLING_RATIO`: Sampling rate 0.0-1.0 (default: `1.0`)
 - `RUST_LOG`: Log level for Rust services (default: `info`)
 
+### OTLP Collector Configuration
+
+The OpenTelemetry collector (`otel-collector-config.yml`) supports environment variable substitution for exporter endpoints:
+
+- `JAEGER_ENDPOINT`: Jaeger exporter endpoint (default: `jaeger:14250`)
+- `ZIPKIN_ENDPOINT`: Zipkin exporter endpoint (default: `http://zipkin:9411/api/v2/spans`)
+
+**Example: Production Configuration**
+
+```bash
+# Set custom endpoints for production
+export JAEGER_ENDPOINT=jaeger.prod.internal:14250
+export ZIPKIN_ENDPOINT=http://zipkin.prod.internal:9411/api/v2/spans
+
+# Start the tracing stack
+docker-compose -f docker-compose.tracing.yml up
+```
+
+**Example: Development Configuration**
+
+```bash
+# Use default local endpoints
+docker-compose -f docker-compose.tracing.yml up
+```
+
 ### API Service Configuration
 
 ```bash
