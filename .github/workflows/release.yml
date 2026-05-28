@@ -42,3 +42,11 @@ jobs:
           tag_name: ${{ github.ref_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload release artifacts
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-notes
+          path: CHANGELOG.md
+          if-no-files-found: ignore

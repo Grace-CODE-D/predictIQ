@@ -145,7 +145,7 @@ jobs:
 
       - name: Upload performance reports
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v7
         with:
           name: performance-reports
           path: performance/backend/reports/
@@ -253,7 +253,7 @@ jobs:
           cargo bench --bench gas_benchmark -- --save-baseline main
 
       - name: Upload benchmark results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v7
         with:
           name: contract-benchmarks
           path: contracts/predict-iq/target/criterion/
@@ -305,7 +305,7 @@ jobs:
 
       - name: Upload regression report
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v7
         with:
           name: regression-report
           path: performance/backend/reports/regression-report.md
