@@ -12,6 +12,37 @@ use opentelemetry_sdk::{
 use opentelemetry_semantic_conventions::resource::{SERVICE_NAME, SERVICE_VERSION};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
+/// Resolve the trace sampling rate from OTel standard env vars, falling back to `default_rate`.
+///
+/// Reads `OTEL_TRACES_SAMPLER` and `OTEL_TRACES_SAMPLER_ARG` per the OpenTelemetry
+/// environment-variable specification.  The default production rate is **10 %** (0.1).
+///
+/// | `OTEL_TRACES_SAMPLER`               | Effect                              |
+/// |-------------------------------------|-------------------------------------|
+/// | `always_on`                         | Sample 100 %                        |
+/// | `always_off`                        | Sample 0 %                          |
+/// | `traceidratio` *(default)*          | Use `OTEL_TRACES_SAMPLER_ARG` ratio |
+/// | `parentbased_always_on`             | Sample 100 %                        |
+/// | `parentbased_always_off`            | Sample 0 %                          |
+/// | `parentbased_traceidratio`          | Use `OTEL_TRACES_SAMPLER_ARG` ratio |
+pub fn sample_rate_from_env(default_rate: f64) -> f64 {
+    let sampler = std::env::var("OTEL_TRACES_SAMPLER")
+        .unwrap_or_else(|_| "traceidratio".to_string());
+
+    match sampler.trim() {
+        "always_on" | "parentbased_always_on" => 1.0,
+        "always_off" | "parentbased_always_off" => 0.0,
+        "traceidratio" | "parentbased_traceidratio" => {
+            std::env::var("OTEL_TRACES_SAMPLER_ARG")
+                .ok()
+                .and_then(|v| v.trim().parse::<f64>().ok())
+                .filter(|r| (0.0..=1.0).contains(r))
+                .unwrap_or(default_rate)
+        }
+        _ => default_rate,
+    }
+}
+
 /// Initialize distributed tracing with OpenTelemetry
 pub fn init_tracing(
     service_name: &str,
@@ -19,6 +50,10 @@ pub fn init_tracing(
     otlp_endpoint: Option<String>,
     sample_rate: f64,
 ) -> Result<(), TraceError> {
+    // OTel standard env vars take precedence over the passed-in rate.
+    // OTEL_TRACES_SAMPLER / OTEL_TRACES_SAMPLER_ARG default to 10 % for production.
+    let sample_rate = sample_rate_from_env(sample_rate);
+
     // Create resource with service information
     let resource = Resource::new(vec![
         KeyValue::new(SERVICE_NAME, service_name.to_string()),
