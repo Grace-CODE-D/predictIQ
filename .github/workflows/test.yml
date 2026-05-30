@@ -615,7 +615,7 @@ jobs:
 
       - name: Check WASM size
         run: |
-          size=$(stat -f%z target/wasm32-unknown-unknown/release/predict_iq_optimized.wasm 2>/dev/null || stat -c%s target/wasm32-unknown-unknown/release/predict_iq_optimized.wasm)
+          size=$(wc -c < target/wasm32-unknown-unknown/release/predict_iq_optimized.wasm)
           echo "Optimized WASM size: $size bytes"
           if [ $size -gt ${{ env.WASM_SIZE_LIMIT_BYTES }} ]; then
             echo "WASM size $size exceeds limit of ${{ env.WASM_SIZE_LIMIT_BYTES }} bytes"
