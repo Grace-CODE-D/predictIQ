@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const isStaging = !!process.env.STAGING_URL;
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
@@ -19,35 +21,61 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
   projects: [
+    // ------------------------------------------------------------------
+    // Local / PR projects (default)
+    // ------------------------------------------------------------------
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      testIgnore: isStaging ? '**' : undefined,
     },
     {
       name: 'firefox',
       use: { ...devices['Desktop Firefox'] },
+      testIgnore: isStaging ? '**' : undefined,
     },
     {
       name: 'webkit',
       use: { ...devices['Desktop Safari'] },
+      testIgnore: isStaging ? '**' : undefined,
     },
     {
       name: 'mobile-chrome',
       use: { ...devices['Pixel 5'] },
+      testIgnore: isStaging ? '**' : undefined,
     },
     {
       name: 'mobile-safari',
       use: { ...devices['iPhone 12'] },
+      testIgnore: isStaging ? '**' : undefined,
     },
     {
       name: 'tablet',
       use: { ...devices['iPad Pro'] },
+      testIgnore: isStaging ? '**' : undefined,
+    },
+
+    // ------------------------------------------------------------------
+    // Staging project — activated when STAGING_URL is set.
+    // Runs against a real API; no local web server is started.
+    // ------------------------------------------------------------------
+    {
+      name: 'staging',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: process.env.STAGING_URL,
+      },
+      testIgnore: isStaging ? undefined : '**',
     },
   ],
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120000,
-  },
+
+  // Only start the local dev server when NOT running against staging.
+  webServer: isStaging
+    ? undefined
+    : {
+        command: 'npm run dev',
+        url: 'http://localhost:3000',
+        reuseExistingServer: !process.env.CI,
+        timeout: 120000,
+      },
 });
