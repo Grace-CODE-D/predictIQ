@@ -1,3 +1,6 @@
+pub mod body_redact;
+pub use body_redact::{body_logging_enabled, redact_sensitive, truncate_body};
+
 use std::sync::Arc;
 
 use axum::{
