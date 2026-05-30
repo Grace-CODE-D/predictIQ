@@ -150,6 +150,17 @@ pub enum ErrorCode {
 
     /// The provided deadline is in the past or otherwise invalid.
     InvalidDeadline = 148,
+
     PendingTransferNotFound = 149,
     NotPendingOwner = 150,
+    TokenFrozen = 151,
+    MigrationValidationError = 152,
+    AssetClawedBack = 153,
+    ArithmeticOverflow = 154,
+    AlreadyClaimed = 155,
+    NoWinnings = 156,
+    InvalidReferrer = 157,
+    ResolutionDeadlinePassed = 158,
+    Overflow = 159,
+    InvalidTimeRange = 160,
 }

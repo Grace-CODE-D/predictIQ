@@ -56,9 +56,12 @@ fn require_fee_withdraw_auth(e: &Env) -> Result<(), ErrorCode> {
     Ok(())
 }
 
-pub fn calculate_fee(e: &Env, amount: i128) -> i128 {
+pub fn calculate_fee(e: &Env, amount: i128) -> Result<i128, ErrorCode> {
     let base_fee = get_base_fee(e);
-    amount.saturating_mul(base_fee) / BPS_DENOMINATOR
+    let numerator = amount
+        .checked_mul(base_fee)
+        .ok_or(ErrorCode::Overflow)?;
+    numerator.checked_div(BPS_DENOMINATOR).ok_or(ErrorCode::Overflow)
 }
 
 fn tier_multiplier_bps(tier: &MarketTier) -> i128 {
@@ -69,17 +72,20 @@ fn tier_multiplier_bps(tier: &MarketTier) -> i128 {
     }
 }
 
-fn calculate_tiered_fee_with_base(amount: i128, base_fee_bps: i128, tier: &MarketTier) -> i128 {
+fn calculate_tiered_fee_with_base(amount: i128, base_fee_bps: i128, tier: &MarketTier) -> Result<i128, ErrorCode> {
     // Single-pass high-precision arithmetic: amount * base_fee_bps * tier_multiplier / (10_000 * 10_000)
     // This avoids early truncation from computing discounted base_fee first.
     let numerator = amount
-        .saturating_mul(base_fee_bps)
-        .saturating_mul(tier_multiplier_bps(tier));
-    numerator / (BPS_DENOMINATOR * TIER_DENOMINATOR_BPS)
+        .checked_mul(base_fee_bps)
+        .and_then(|n| n.checked_mul(tier_multiplier_bps(tier)))
+        .ok_or(ErrorCode::Overflow)?;
+    numerator
+        .checked_div(BPS_DENOMINATOR * TIER_DENOMINATOR_BPS)
+        .ok_or(ErrorCode::Overflow)
 }
 
 /// Issue #39: multiply before divide and keep tier multipliers in bps.
-pub fn calculate_tiered_fee(e: &Env, amount: i128, tier: &MarketTier) -> i128 {
+pub fn calculate_tiered_fee(e: &Env, amount: i128, tier: &MarketTier) -> Result<i128, ErrorCode> {
     let base_fee = get_base_fee(e);
     calculate_tiered_fee_with_base(amount, base_fee, tier)
 }
@@ -142,20 +148,27 @@ pub fn withdraw_protocol_fees(
 }
 
 /// Issue #1: Referral reward keyed by (referrer, token) to prevent cross-asset mixing.
-pub fn add_referral_reward(e: &Env, referrer: &Address, token: &Address, fee_amount: i128) {
-    let reward = (fee_amount * 10) / 100;
+pub fn add_referral_reward(e: &Env, referrer: &Address, token: &Address, fee_amount: i128) -> Result<(), ErrorCode> {
+    let reward = fee_amount
+        .checked_mul(10)
+        .and_then(|n| n.checked_div(100))
+        .ok_or(ErrorCode::Overflow)?;
     let key = DataKey::ReferrerBalance(referrer.clone(), token.clone());
-    let mut balance: i128 = e.storage().persistent().get(&key).unwrap_or(0);
-    balance += reward;
-    e.storage().persistent().set(&key, &balance);
+    let balance: i128 = e.storage().persistent().get(&key).unwrap_or(0);
+    let new_balance = balance.checked_add(reward).ok_or(ErrorCode::Overflow)?;
+    e.storage().persistent().set(&key, &new_balance);
 
     crate::modules::events::emit_referral_reward(e, 0, referrer.clone(), reward);
+    Ok(())
 }
 
 /// Reverse a referral reward that was credited at bet time.
 /// Called during cancellation refund to void rewards from cancelled markets.
 pub fn reverse_referral_reward(e: &Env, referrer: &Address, token: &Address, fee_amount: i128) {
-    let reward = (fee_amount * 10) / 100;
+    let reward = match fee_amount.checked_mul(10).and_then(|n| n.checked_div(100)) {
+        Some(r) => r,
+        None => return, // overflow on a reversal is a no-op; balance stays as-is
+    };
     if reward == 0 {
         return;
     }
@@ -236,17 +249,17 @@ mod tests {
         // 1 bps base fee with Pro tier (25% discount):
         // old math: ((1 * 75) / 100) = 0 bps => zero fee for all amounts.
         // new math preserves the discounted 0.75 bps effect until final division.
-        let basic_fee = calculate_tiered_fee_with_base(4_000_000, 1, &MarketTier::Basic);
-        let pro_fee = calculate_tiered_fee_with_base(4_000_000, 1, &MarketTier::Pro);
+        let basic_fee = calculate_tiered_fee_with_base(4_000_000, 1, &MarketTier::Basic).unwrap();
+        let pro_fee = calculate_tiered_fee_with_base(4_000_000, 1, &MarketTier::Pro).unwrap();
         assert_eq!(basic_fee, 400);
         assert_eq!(pro_fee, 300);
     }
 
     #[test]
     fn tiered_fee_uses_expected_discount_ratio() {
-        let basic_fee = calculate_tiered_fee_with_base(10_000, 100, &MarketTier::Basic);
-        let pro_fee = calculate_tiered_fee_with_base(10_000, 100, &MarketTier::Pro);
-        let inst_fee = calculate_tiered_fee_with_base(10_000, 100, &MarketTier::Institutional);
+        let basic_fee = calculate_tiered_fee_with_base(10_000, 100, &MarketTier::Basic).unwrap();
+        let pro_fee = calculate_tiered_fee_with_base(10_000, 100, &MarketTier::Pro).unwrap();
+        let inst_fee = calculate_tiered_fee_with_base(10_000, 100, &MarketTier::Institutional).unwrap();
 
         assert_eq!(basic_fee, 100);
         assert_eq!(pro_fee, 75);
@@ -255,11 +268,17 @@ mod tests {
 
     #[test]
     fn four_unit_bet_applies_pro_discount() {
-        let basic_fee = calculate_tiered_fee_with_base(4, 10_000, &MarketTier::Basic);
-        let pro_fee = calculate_tiered_fee_with_base(4, 10_000, &MarketTier::Pro);
+        let basic_fee = calculate_tiered_fee_with_base(4, 10_000, &MarketTier::Basic).unwrap();
+        let pro_fee = calculate_tiered_fee_with_base(4, 10_000, &MarketTier::Pro).unwrap();
 
         assert_eq!(basic_fee, 4);
         assert_eq!(pro_fee, 3);
+    }
+
+    #[test]
+    fn max_i128_amount_returns_overflow_error() {
+        let result = calculate_tiered_fee_with_base(i128::MAX, 10_000, &MarketTier::Basic);
+        assert!(result.is_err(), "i128::MAX * 10_000 must overflow and return Err");
     }
 }
 

@@ -3,12 +3,85 @@ use crate::types::MarketStatus;
 use crate::modules::{markets, oracles, voting};
 use crate::errors::ErrorCode;
 
-const DISPUTE_WINDOW_SECONDS: u64 = 259200; // 72 hours
+pub const DEFAULT_DISPUTE_WINDOW_SECONDS: u64 = 259_200; // 72 hours
+pub const MIN_DISPUTE_WINDOW_SECONDS: u64 = 3_600; // 1 hour
+pub const MAX_DISPUTE_WINDOW_SECONDS: u64 = 30 * 24 * 60 * 60; // 30 days
 const VOTING_PERIOD_SECONDS: u64 = 259200; // 72 hours
 const MAJORITY_THRESHOLD_BPS: i128 = 6000; // 60%
 
 pub fn get_dispute_window() -> u64 {
-    DISPUTE_WINDOW_SECONDS
+    DEFAULT_DISPUTE_WINDOW_SECONDS
+}
+
+pub fn get_default_dispute_window(e: &Env) -> u64 {
+    e.storage()
+        .persistent()
+        .get(&crate::types::ConfigKey::DefaultDisputeWindow)
+        .unwrap_or(DEFAULT_DISPUTE_WINDOW_SECONDS)
+}
+
+pub fn get_dispute_window_bounds(e: &Env) -> (u64, u64) {
+    let min = e
+        .storage()
+        .persistent()
+        .get(&crate::types::ConfigKey::MinDisputeWindow)
+        .unwrap_or(MIN_DISPUTE_WINDOW_SECONDS);
+    let max = e
+        .storage()
+        .persistent()
+        .get(&crate::types::ConfigKey::MaxDisputeWindow)
+        .unwrap_or(MAX_DISPUTE_WINDOW_SECONDS);
+    (min, max)
+}
+
+pub fn set_dispute_window(e: &Env, seconds: u64) -> Result<(), ErrorCode> {
+    crate::modules::admin::require_admin(e)?;
+    validate_dispute_window(e, seconds)?;
+    e.storage()
+        .persistent()
+        .set(&crate::types::ConfigKey::DefaultDisputeWindow, &seconds);
+    Ok(())
+}
+
+pub fn set_dispute_window_bounds(
+    e: &Env,
+    min_seconds: u64,
+    max_seconds: u64,
+) -> Result<(), ErrorCode> {
+    crate::modules::admin::require_admin(e)?;
+    if min_seconds == 0 || min_seconds > max_seconds {
+        return Err(ErrorCode::InvalidAmount);
+    }
+
+    let default_window = get_default_dispute_window(e);
+    if default_window < min_seconds || default_window > max_seconds {
+        return Err(ErrorCode::InvalidAmount);
+    }
+
+    e.storage()
+        .persistent()
+        .set(&crate::types::ConfigKey::MinDisputeWindow, &min_seconds);
+    e.storage()
+        .persistent()
+        .set(&crate::types::ConfigKey::MaxDisputeWindow, &max_seconds);
+    Ok(())
+}
+
+pub fn resolve_market_dispute_window(
+    e: &Env,
+    dispute_window_seconds: Option<u64>,
+) -> Result<u64, ErrorCode> {
+    let window = dispute_window_seconds.unwrap_or_else(|| get_default_dispute_window(e));
+    validate_dispute_window(e, window)?;
+    Ok(window)
+}
+
+fn validate_dispute_window(e: &Env, seconds: u64) -> Result<(), ErrorCode> {
+    let (min, max) = get_dispute_window_bounds(e);
+    if seconds < min || seconds > max {
+        return Err(ErrorCode::InvalidAmount);
+    }
+    Ok(())
 }
 
 /// T+0: Attempt oracle resolution at resolution deadline
@@ -65,7 +138,8 @@ pub fn finalize_resolution(e: &Env, market_id: u64) -> Result<(), ErrorCode> {
         MarketStatus::PendingResolution => {
             // Check if 24h dispute window has passed
             let pending_ts = market.pending_resolution_timestamp.ok_or(ErrorCode::ResolutionNotReady)?;
-            if e.ledger().timestamp() < pending_ts + DISPUTE_WINDOW_SECONDS {
+            let dispute_window = markets::get_market_dispute_window(e, market_id);
+            if e.ledger().timestamp() < pending_ts + dispute_window {
                 return Err(ErrorCode::DisputeWindowStillOpen);
             }
             

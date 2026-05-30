@@ -164,7 +164,7 @@ fn test_create_market_deadline_in_past() {
         &0,
     );
 
-    assert_eq!(result, Err(Ok(ErrorCode::DeadlinePassed)));
+    assert_eq!(result, Err(Ok(ErrorCode::InvalidTimeRange)));
 }
 
 #[test]
@@ -200,7 +200,7 @@ fn test_create_market_resolution_before_deadline() {
         &0,
     );
 
-    assert_eq!(result, Err(Ok(ErrorCode::DeadlinePassed)));
+    assert_eq!(result, Err(Ok(ErrorCode::InvalidTimeRange)));
 }
 
 #[test]
@@ -782,5 +782,153 @@ fn test_prune_accepts_resolved_market_past_grace_period() {
 
     env.ledger().set_timestamp(100 + 2_592_001); // past 30-day grace period
     let result = client.try_prune_market(&market_id);
+    assert!(result.is_ok());
+}
+
+// ---------------------------------------------------------------------------
+// Issue: end_time > start_time and end_time > current_ledger_time validation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_create_market_end_time_equals_start_time_rejected() {
+    let (env, client, admin) = setup();
+
+    let options = Vec::from_array(
+        &env,
+        [String::from_str(&env, "Yes"), String::from_str(&env, "No")],
+    );
+    let oracle_config = OracleConfig {
+        oracle_address: Address::generate(&env),
+        feed_id: String::from_str(&env, "test"),
+        min_responses: Some(1),
+        max_staleness_seconds: 3600,
+        max_confidence_bps: 100,
+        strike_price: None,
+    };
+    let token = Address::generate(&env);
+
+    // deadline == resolution_deadline → invalid time range
+    let result = client.try_create_market(
+        &admin,
+        &String::from_str(&env, "Equal Deadlines"),
+        &options,
+        &2000,
+        &2000,
+        &oracle_config,
+        &MarketTier::Basic,
+        &token,
+        &0,
+        &0,
+    );
+
+    assert_eq!(result, Err(Ok(ErrorCode::InvalidTimeRange)));
+}
+
+#[test]
+fn test_create_market_deadline_equals_current_time_rejected() {
+    let (env, client, admin) = setup();
+
+    env.ledger().set_timestamp(1000);
+
+    let options = Vec::from_array(
+        &env,
+        [String::from_str(&env, "Yes"), String::from_str(&env, "No")],
+    );
+    let oracle_config = OracleConfig {
+        oracle_address: Address::generate(&env),
+        feed_id: String::from_str(&env, "test"),
+        min_responses: Some(1),
+        max_staleness_seconds: 3600,
+        max_confidence_bps: 100,
+        strike_price: None,
+    };
+    let token = Address::generate(&env);
+
+    // deadline == current_time → not strictly in the future
+    let result = client.try_create_market(
+        &admin,
+        &String::from_str(&env, "Deadline At Now"),
+        &options,
+        &1000,
+        &5000,
+        &oracle_config,
+        &MarketTier::Basic,
+        &token,
+        &0,
+        &0,
+    );
+
+    assert_eq!(result, Err(Ok(ErrorCode::InvalidTimeRange)));
+}
+
+#[test]
+fn test_create_market_resolution_deadline_before_deadline_rejected() {
+    let (env, client, admin) = setup();
+
+    let options = Vec::from_array(
+        &env,
+        [String::from_str(&env, "Yes"), String::from_str(&env, "No")],
+    );
+    let oracle_config = OracleConfig {
+        oracle_address: Address::generate(&env),
+        feed_id: String::from_str(&env, "test"),
+        min_responses: Some(1),
+        max_staleness_seconds: 3600,
+        max_confidence_bps: 100,
+        strike_price: None,
+    };
+    let token = Address::generate(&env);
+
+    // resolution_deadline < deadline → invalid time range
+    let result = client.try_create_market(
+        &admin,
+        &String::from_str(&env, "Resolution Before Deadline"),
+        &options,
+        &5000,
+        &3000,
+        &oracle_config,
+        &MarketTier::Basic,
+        &token,
+        &0,
+        &0,
+    );
+
+    assert_eq!(result, Err(Ok(ErrorCode::InvalidTimeRange)));
+}
+
+#[test]
+fn test_create_market_valid_time_range_succeeds() {
+    let (env, client, admin) = setup();
+
+    env.ledger().set_timestamp(0);
+
+    let options = Vec::from_array(
+        &env,
+        [String::from_str(&env, "Yes"), String::from_str(&env, "No")],
+    );
+    let oracle_config = OracleConfig {
+        oracle_address: Address::generate(&env),
+        feed_id: String::from_str(&env, "test"),
+        min_responses: Some(1),
+        max_staleness_seconds: 3600,
+        max_confidence_bps: 100,
+        strike_price: None,
+    };
+    let token = Address::generate(&env);
+
+    // deadline > current_time AND resolution_deadline > deadline AND gap >= 86400
+    let result = client.try_create_market(
+        &admin,
+        &String::from_str(&env, "Valid Time Range"),
+        &options,
+        &1000,
+        &100000,
+        &oracle_config,
+        &MarketTier::Basic,
+        &token,
+        &0,
+        &0,
+    );
+
     assert!(result.is_ok());
 }

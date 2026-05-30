@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::Context;
-use prometheus::{Encoder, HistogramVec, IntCounterVec, IntGauge, Registry, TextEncoder};
+use prometheus::{Encoder, HistogramVec, IntCounterVec, IntGauge, IntGaugeVec, Registry, TextEncoder};
 
 #[derive(Clone)]
 pub struct Metrics {
@@ -13,9 +13,10 @@ pub struct Metrics {
     rpc_errors: IntCounterVec,
     rpc_fallbacks: IntCounterVec,
     db_timeouts: IntCounterVec,
-    db_pool_size: IntGauge,
-    db_pool_idle: IntGauge,
-    db_pool_active: IntGauge,
+    email_dlq_size: IntGauge,
+    db_pool_connections_active: IntGaugeVec,
+    db_pool_connections_idle: IntGaugeVec,
+    db_pool_acquire_duration: HistogramVec,
 }
 
 impl Metrics {
@@ -73,23 +74,41 @@ impl Metrics {
         )
         .context("db_timeouts metric")?;
 
-        let db_pool_size = IntGauge::new(
-            "db_pool_size",
-            "Total number of connections in the PostgreSQL pool (idle + active)",
+        let email_dlq_size = IntGauge::new(
+            "email_dlq_size",
+            "Number of email jobs currently in the dead-letter queue",
         )
-        .context("db_pool_size metric")?;
+        .context("email_dlq_size metric")?;
 
-        let db_pool_idle = IntGauge::new(
-            "db_pool_idle",
-            "Number of idle connections in the PostgreSQL pool",
+        let db_pool_connections_active = IntGaugeVec::new(
+            prometheus::Opts::new(
+                "db_pool_connections_active",
+                "Number of connections currently checked out from the pool",
+            ),
+            &["pool"],
         )
-        .context("db_pool_idle metric")?;
+        .context("db_pool_connections_active metric")?;
 
-        let db_pool_active = IntGauge::new(
-            "db_pool_active",
-            "Number of active (in-use) connections in the PostgreSQL pool",
+        let db_pool_connections_idle = IntGaugeVec::new(
+            prometheus::Opts::new(
+                "db_pool_connections_idle",
+                "Number of idle connections sitting in the pool",
+            ),
+            &["pool"],
         )
-        .context("db_pool_active metric")?;
+        .context("db_pool_connections_idle metric")?;
+
+        let db_pool_acquire_duration = HistogramVec::new(
+            prometheus::HistogramOpts::new(
+                "db_pool_acquire_duration_seconds",
+                "Time spent waiting to acquire a connection from the pool",
+            )
+            .buckets(vec![
+                0.0001, 0.0005, 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0,
+            ]),
+            &["pool"],
+        )
+        .context("db_pool_acquire_duration metric")?;
 
         registry.register(Box::new(cache_hits.clone()))?;
         registry.register(Box::new(cache_misses.clone()))?;
@@ -98,9 +117,10 @@ impl Metrics {
         registry.register(Box::new(rpc_errors.clone()))?;
         registry.register(Box::new(rpc_fallbacks.clone()))?;
         registry.register(Box::new(db_timeouts.clone()))?;
-        registry.register(Box::new(db_pool_size.clone()))?;
-        registry.register(Box::new(db_pool_idle.clone()))?;
-        registry.register(Box::new(db_pool_active.clone()))?;
+        registry.register(Box::new(email_dlq_size.clone()))?;
+        registry.register(Box::new(db_pool_connections_active.clone()))?;
+        registry.register(Box::new(db_pool_connections_idle.clone()))?;
+        registry.register(Box::new(db_pool_acquire_duration.clone()))?;
 
         Ok(Self {
             registry,
@@ -111,9 +131,10 @@ impl Metrics {
             rpc_errors,
             rpc_fallbacks,
             db_timeouts,
-            db_pool_size,
-            db_pool_idle,
-            db_pool_active,
+            email_dlq_size,
+            db_pool_connections_active,
+            db_pool_connections_idle,
+            db_pool_acquire_duration,
         })
     }
 
@@ -153,12 +174,8 @@ impl Metrics {
         self.db_timeouts.with_label_values(&[operation]).inc();
     }
 
-    pub fn record_pool_metrics(&self, size: u32, idle: usize) {
-        let idle = idle as i64;
-        let size = size as i64;
-        self.db_pool_size.set(size);
-        self.db_pool_idle.set(idle);
-        self.db_pool_active.set((size - idle).max(0));
+    pub fn set_dlq_size(&self, n: i64) {
+        self.email_dlq_size.set(n);
     }
 
     pub fn observe_tx_eviction(&self, count: u64) {
@@ -167,6 +184,24 @@ impl Metrics {
                 .with_label_values(&["tx_watch_eviction"])
                 .inc_by(count);
         }
+    }
+
+    /// Update connection pool utilisation gauges.
+    /// Call this on each pool event (connection acquired, released, opened, closed).
+    pub fn observe_pool_connections(&self, pool: &str, active: i64, idle: i64) {
+        self.db_pool_connections_active
+            .with_label_values(&[pool])
+            .set(active);
+        self.db_pool_connections_idle
+            .with_label_values(&[pool])
+            .set(idle);
+    }
+
+    /// Record how long the caller waited to acquire a connection from the pool.
+    pub fn observe_pool_acquire(&self, pool: &str, duration: Duration) {
+        self.db_pool_acquire_duration
+            .with_label_values(&[pool])
+            .observe(duration.as_secs_f64());
     }
 
     pub fn render(&self) -> anyhow::Result<String> {

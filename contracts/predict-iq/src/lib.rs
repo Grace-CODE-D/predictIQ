@@ -78,6 +78,36 @@ impl PredictIQ {
         )
     }
 
+    pub fn create_market_with_dispute_window(
+        e: Env,
+        creator: Address,
+        description: String,
+        options: Vec<String>,
+        deadline: u64,
+        resolution_deadline: u64,
+        oracle_config: crate::types::OracleConfig,
+        tier: crate::types::MarketTier,
+        native_token: Address,
+        parent_id: u64,
+        parent_outcome_idx: u32,
+        dispute_window_seconds: Option<u64>,
+    ) -> Result<u64, ErrorCode> {
+        crate::modules::markets::create_market_with_dispute_window(
+            &e,
+            creator,
+            description,
+            options,
+            deadline,
+            resolution_deadline,
+            oracle_config,
+            tier,
+            native_token,
+            parent_id,
+            parent_outcome_idx,
+            dispute_window_seconds,
+        )
+    }
+
     pub fn place_bet(
         e: Env,
         bettor: Address,
@@ -134,6 +164,22 @@ impl PredictIQ {
     pub fn file_dispute(e: Env, disciplinarian: Address, market_id: u64) -> Result<(), ErrorCode> {
         crate::modules::circuit_breaker::require_closed(&e)?;
         crate::modules::disputes::file_dispute(&e, disciplinarian, market_id)
+    }
+
+    pub fn set_dispute_window(e: Env, seconds: u64) -> Result<(), ErrorCode> {
+        crate::modules::resolution::set_dispute_window(&e, seconds)
+    }
+
+    pub fn set_dispute_window_bounds(
+        e: Env,
+        min_seconds: u64,
+        max_seconds: u64,
+    ) -> Result<(), ErrorCode> {
+        crate::modules::resolution::set_dispute_window_bounds(&e, min_seconds, max_seconds)
+    }
+
+    pub fn get_market_dispute_window(e: Env, market_id: u64) -> u64 {
+        crate::modules::markets::get_market_dispute_window(&e, market_id)
     }
 
     pub fn set_circuit_breaker(

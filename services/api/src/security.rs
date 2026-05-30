@@ -468,7 +468,7 @@ pub async fn sendgrid_webhook_middleware(
 ) -> Result<Response, StatusCode> {
     let is_dev = std::env::var("ENVIRONMENT")
         .map(|e| e == "development")
-        .unwrap_or(true); // default to dev if not set
+        .unwrap_or(false); // default to non-dev so signature verification is enforced
 
     if config.secret.is_none() && !is_dev {
         return Err(StatusCode::UNAUTHORIZED);
@@ -516,6 +516,7 @@ pub mod signing {
     use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
+    use std::time::SystemTime;
 
     type HmacSha256 = Hmac<Sha256>;
 
@@ -533,6 +534,51 @@ pub mod signing {
         };
 
         mac.verify_slice(&expected).is_ok()
+    }
+
+    /// Verify a signature against the current key, or the previous key if provided and
+    /// the token is within the grace period.
+    ///
+    /// # Arguments
+    /// * `payload` - The signed payload
+    /// * `signature` - The base64-encoded HMAC signature
+    /// * `current_key` - The current HMAC secret key
+    /// * `previous_key` - Optional previous HMAC secret key for rotation
+    /// * `token_timestamp_secs` - The timestamp when the token was created (Unix seconds)
+    /// * `grace_period_secs` - Grace period in seconds for accepting tokens signed with the previous key
+    ///
+    /// Returns true if the signature is valid against either key (within grace period for previous key)
+    pub fn verify_signature_with_rotation(
+        payload: &[u8],
+        signature: &str,
+        current_key: &str,
+        previous_key: Option<&str>,
+        token_timestamp_secs: i64,
+        grace_period_secs: u64,
+    ) -> bool {
+        // Always try the current key first
+        if verify_signature(payload, signature, current_key) {
+            return true;
+        }
+
+        // If no previous key, we're done
+        let Some(prev_key) = previous_key else {
+            return false;
+        };
+
+        // Try the previous key only if within the grace period
+        if !verify_signature(payload, signature, prev_key) {
+            return false;
+        }
+
+        // Check if token is within grace period
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+
+        let age_secs = now - token_timestamp_secs;
+        age_secs >= 0 && (age_secs as u64) <= grace_period_secs
     }
 
     pub fn generate_signature(payload: &[u8], secret: &str) -> Result<String, SigningError> {
@@ -983,6 +1029,47 @@ mod tests {
         assert!(limiter.check("test:3", &config).await); // 1/1 (window reset)
     }
 
+    // ── Argon2 password hashing tests (issue #664) ───────────────────────────
+
+    #[test]
+    fn password_hash_and_verify_roundtrip() {
+        let pw = "correct-horse-battery-staple";
+        let hash = hash_password(pw).expect("hash should succeed");
+        assert!(verify_password(pw, &hash));
+    }
+
+    #[test]
+    fn wrong_password_does_not_verify() {
+        let hash = hash_password("secret").expect("hash should succeed");
+        assert!(!verify_password("wrong", &hash));
+    }
+
+    #[test]
+    fn two_hashes_of_same_password_differ_due_to_salt() {
+        let h1 = hash_password("pw").unwrap();
+        let h2 = hash_password("pw").unwrap();
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn malformed_hash_returns_false_not_panic() {
+        assert!(!verify_password("any", "not-a-valid-phc-hash"));
+    }
+
+    #[test]
+    fn integrity_hash_is_deterministic_hex_64_chars() {
+        let h1 = integrity_hash(b"cache-key");
+        let h2 = integrity_hash(b"cache-key");
+        assert_eq!(h1, h2);
+        assert!(h1.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(h1.len(), 64);
+    }
+
+    #[test]
+    fn integrity_hash_differs_for_different_inputs() {
+        assert_ne!(integrity_hash(b"a"), integrity_hash(b"b"));
+    }
+
     /// Test cleanup removes expired entries.
     #[tokio::test]
     async fn rate_limiter_cleanup_removes_expired_entries() {
@@ -1021,6 +1108,147 @@ mod tests {
         //
         // Result: PASS - no memory leaks possible
     }
+
+    // ── HMAC key rotation tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_verify_signature_with_rotation_current_key() {
+        use super::signing::{generate_signature, verify_signature_with_rotation};
+
+        let payload = b"test payload";
+        let current_key = "current-secret";
+        let previous_key = Some("previous-secret");
+
+        let signature = generate_signature(payload, current_key).unwrap();
+        let token_timestamp = (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64)
+            - 1800; // 30 minutes ago
+        let grace_period = 3600; // 1 hour
+
+        assert!(verify_signature_with_rotation(
+            payload,
+            &signature,
+            current_key,
+            previous_key.as_deref(),
+            token_timestamp,
+            grace_period
+        ));
+    }
+
+    #[test]
+    fn test_verify_signature_with_rotation_previous_key_within_grace() {
+        use super::signing::{generate_signature, verify_signature_with_rotation};
+
+        let payload = b"test payload";
+        let current_key = "current-secret";
+        let previous_key = "previous-secret";
+
+        let signature = generate_signature(payload, previous_key).unwrap();
+        let token_timestamp = (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64)
+            - 1800; // 30 minutes ago
+        let grace_period = 3600; // 1 hour
+
+        assert!(verify_signature_with_rotation(
+            payload,
+            &signature,
+            current_key,
+            Some(previous_key),
+            token_timestamp,
+            grace_period
+        ));
+    }
+
+    #[test]
+    fn test_verify_signature_with_rotation_previous_key_outside_grace() {
+        use super::signing::{generate_signature, verify_signature_with_rotation};
+
+        let payload = b"test payload";
+        let current_key = "current-secret";
+        let previous_key = "previous-secret";
+
+        let signature = generate_signature(payload, previous_key).unwrap();
+        let token_timestamp = (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64)
+            - 7200; // 2 hours ago
+        let grace_period = 3600; // 1 hour
+
+        assert!(!verify_signature_with_rotation(
+            payload,
+            &signature,
+            current_key,
+            Some(previous_key),
+            token_timestamp,
+            grace_period
+        ));
+    }
+
+    #[test]
+    fn test_verify_signature_with_rotation_no_previous_key() {
+        use super::signing::{generate_signature, verify_signature_with_rotation};
+
+        let payload = b"test payload";
+        let current_key = "current-secret";
+        let wrong_key = "wrong-secret";
+
+        let signature = generate_signature(payload, wrong_key).unwrap();
+        let token_timestamp = (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64)
+            - 1800; // 30 minutes ago
+        let grace_period = 3600; // 1 hour
+
+        assert!(!verify_signature_with_rotation(
+            payload,
+            &signature,
+            current_key,
+            None,
+            token_timestamp,
+            grace_period
+        ));
+    }
+}
+
+// ── Password hashing (Argon2id) ───────────────────────────────────────────────
+
+use argon2::{
+    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    Argon2,
+};
+
+/// Hash a user password or API secret using Argon2id with a random salt.
+pub fn hash_password(plaintext: &str) -> Result<String, argon2::password_hash::Error> {
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    Ok(argon2.hash_password(plaintext.as_bytes(), &salt)?.to_string())
+}
+
+/// Verify a plaintext password against a stored Argon2 PHC hash string.
+/// Returns `false` on any error — prevents oracle leaks.
+pub fn verify_password(plaintext: &str, hash: &str) -> bool {
+    let parsed = match PasswordHash::new(hash) {
+        Ok(h) => h,
+        Err(_) => return false,
+    };
+    Argon2::default()
+        .verify_password(plaintext.as_bytes(), &parsed)
+        .is_ok()
+}
+
+/// SHA-256 integrity hash for non-secret data: cache keys, ETags, content deduplication.
+/// Do NOT use for passwords or API secrets — use `hash_password` instead.
+pub fn integrity_hash(data: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    format!("{:x}", hasher.finalize())
 }
 
 /// Middleware to propagate trace context from incoming requests
