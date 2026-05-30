@@ -735,6 +735,7 @@ pub async fn resolve_market(
 }
 
 pub async fn metrics(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, ApiError> {
+    state.db.record_pool_metrics();
     let body = state.metrics.render().map_err(into_api_error)?;
     Ok((
         StatusCode::OK,

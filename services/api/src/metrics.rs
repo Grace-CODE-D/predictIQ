@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::Context;
-use prometheus::{Encoder, HistogramVec, IntCounterVec, Registry, TextEncoder};
+use prometheus::{Encoder, HistogramVec, IntCounterVec, IntGauge, Registry, TextEncoder};
 
 #[derive(Clone)]
 pub struct Metrics {
@@ -13,6 +13,9 @@ pub struct Metrics {
     rpc_errors: IntCounterVec,
     rpc_fallbacks: IntCounterVec,
     db_timeouts: IntCounterVec,
+    db_pool_size: IntGauge,
+    db_pool_idle: IntGauge,
+    db_pool_active: IntGauge,
 }
 
 impl Metrics {
@@ -70,6 +73,24 @@ impl Metrics {
         )
         .context("db_timeouts metric")?;
 
+        let db_pool_size = IntGauge::new(
+            "db_pool_size",
+            "Total number of connections in the PostgreSQL pool (idle + active)",
+        )
+        .context("db_pool_size metric")?;
+
+        let db_pool_idle = IntGauge::new(
+            "db_pool_idle",
+            "Number of idle connections in the PostgreSQL pool",
+        )
+        .context("db_pool_idle metric")?;
+
+        let db_pool_active = IntGauge::new(
+            "db_pool_active",
+            "Number of active (in-use) connections in the PostgreSQL pool",
+        )
+        .context("db_pool_active metric")?;
+
         registry.register(Box::new(cache_hits.clone()))?;
         registry.register(Box::new(cache_misses.clone()))?;
         registry.register(Box::new(invalidations.clone()))?;
@@ -77,6 +98,9 @@ impl Metrics {
         registry.register(Box::new(rpc_errors.clone()))?;
         registry.register(Box::new(rpc_fallbacks.clone()))?;
         registry.register(Box::new(db_timeouts.clone()))?;
+        registry.register(Box::new(db_pool_size.clone()))?;
+        registry.register(Box::new(db_pool_idle.clone()))?;
+        registry.register(Box::new(db_pool_active.clone()))?;
 
         Ok(Self {
             registry,
@@ -87,6 +111,9 @@ impl Metrics {
             rpc_errors,
             rpc_fallbacks,
             db_timeouts,
+            db_pool_size,
+            db_pool_idle,
+            db_pool_active,
         })
     }
 
@@ -124,6 +151,14 @@ impl Metrics {
 
     pub fn observe_db_timeout(&self, operation: &str) {
         self.db_timeouts.with_label_values(&[operation]).inc();
+    }
+
+    pub fn record_pool_metrics(&self, size: u32, idle: usize) {
+        let idle = idle as i64;
+        let size = size as i64;
+        self.db_pool_size.set(size);
+        self.db_pool_idle.set(idle);
+        self.db_pool_active.set((size - idle).max(0));
     }
 
     pub fn observe_tx_eviction(&self, count: u64) {

@@ -37,6 +37,28 @@ cargo test -p predictiq-api -- --nocapture
 | `DB_POOL_IDLE_TIMEOUT_SECS` | _(sqlx default)_ | Seconds before idle connections are reaped |
 | `DB_POOL_MAX_LIFETIME_SECS` | _(sqlx default)_ | Max lifetime of a connection |
 | `DB_QUERY_TIMEOUT_SECS` | `30` | Per-query execution timeout |
+| `DB_STATEMENT_TIMEOUT_MS` | `30000` | PostgreSQL `statement_timeout` per connection (ms) |
+| `DB_LOCK_TIMEOUT_MS` | `10000` | PostgreSQL `lock_timeout` per connection (ms) |
+
+### Recommended production pool settings
+
+| Scenario | `MIN` | `MAX` | `ACQUIRE_TIMEOUT` | `IDLE_TIMEOUT` | `MAX_LIFETIME` |
+|---|---|---|---|---|---|
+| Low traffic / staging | `2` | `10` | `5s` | `300s` | `1800s` |
+| Standard production | `5` | `25` | `5s` | `600s` | `1800s` |
+| High-throughput production | `10` | `50` | `10s` | `600s` | `3600s` |
+
+Rule of thumb: `MAX` ≤ PostgreSQL `max_connections` minus connections reserved for migrations, pg_bouncer, and maintenance sessions.
+
+### Pool metrics
+
+The following Prometheus gauges are exported on `/metrics` and updated on each scrape:
+
+| Metric | Description |
+|---|---|
+| `db_pool_size` | Total connections in the pool (idle + active) |
+| `db_pool_idle` | Idle connections waiting for work |
+| `db_pool_active` | Connections currently executing a query |
 | `BLOCKCHAIN_RPC_URL` | testnet default | Soroban RPC endpoint |
 | `PREDICTIQ_CONTRACT_ID` | `predictiq_contract` | On-chain contract ID |
 | `API_KEYS` | _(none)_ | Comma-separated admin API keys |

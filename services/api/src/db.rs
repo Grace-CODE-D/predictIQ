@@ -98,6 +98,12 @@ impl Database {
         self.pool.clone()
     }
 
+    /// Snapshot pool size/idle into Prometheus gauges.
+    /// Call this just before rendering `/metrics` so the values are current.
+    pub fn record_pool_metrics(&self) {
+        self.metrics.record_pool_metrics(self.pool.size(), self.pool.num_idle());
+    }
+
     pub async fn new(
         database_url: &str,
         cache: RedisCache,
