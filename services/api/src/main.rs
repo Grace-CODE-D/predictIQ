@@ -10,7 +10,7 @@ use predictiq_api::{
     metrics::Metrics,
     newsletter::IpRateLimiter,
     security::{self, ApiKeyAuth, IpWhitelist, MetricsAuthConfig, RateLimiter},
-    shutdown::{wait_for_signal, ShutdownCoordinator},
+    shutdown::{self as shutdown, wait_for_signal, ShutdownCoordinator},
     tracing_config, compression,
     AppState,
 };
@@ -108,11 +108,17 @@ async fn main() -> anyhow::Result<()> {
     let ip_whitelist = Arc::new(IpWhitelist::new(config.admin_whitelist_ips.clone()));
     let config_trust_proxy = config.trust_proxy;
 
-    // ── Shutdown coordinator ──────────────────────────────────────────────────
-    // 3 managed workers: blockchain-sync, blockchain-tx-monitor, email-queue.
+    // ── Shutdown coordinators ─────────────────────────────────────────────────
+    // Email queue gets its own coordinator so it can be drained with a dedicated
+    // timeout (EMAIL_QUEUE_DRAIN_TIMEOUT_SECS) that is independent of the global
+    // worker shutdown timeout.  Losing in-flight emails is more costly than
+    // delaying exit, so the email drain timeout defaults to 60 s.
+    //
+    // Blockchain workers (sync + tx-monitor) use the global coordinator.
     // The rate-limiter cleanup and newsletter cleanup tasks are fire-and-forget
     // (low-risk, no persistent state) so they are not tracked.
-    let coordinator = ShutdownCoordinator::new(3);
+    let email_coordinator = ShutdownCoordinator::new(1);
+    let coordinator = ShutdownCoordinator::new(2);
 
     // ── Rate-limiter cleanup (fire-and-forget) ────────────────────────────────
     let rate_limiter_cleanup = rate_limiter.clone();
@@ -159,8 +165,8 @@ async fn main() -> anyhow::Result<()> {
     // ── Email queue worker ────────────────────────────────────────────────────
     let queue_worker = email_queue.clone();
     let service_worker = email_service.clone();
-    let email_token = coordinator.token();
-    let email_coord = coordinator.clone();
+    let email_token = email_coordinator.token();
+    let email_coord = email_coordinator.clone();
     let stale_threshold = state.config.email_stale_job_threshold_secs;
     tokio::spawn(async move {
         queue_worker
@@ -342,15 +348,27 @@ async fn main() -> anyhow::Result<()> {
     // After the server stops accepting connections we then drain background workers.
     let axum_shutdown = {
         let coord = coordinator.clone();
+        let email_coord = email_coordinator.clone();
         async move {
             wait_for_signal().await;
             tracing::info!("Shutdown signal received — stopping HTTP server");
-            // Cancel all worker tokens so they stop dequeuing new work.
-            // Workers finish their current task then call worker_completed().
+
+            // Drain email queue first with its own timeout to avoid losing in-flight emails.
+            let email_drain = shutdown::email_queue_drain_timeout();
+            tracing::info!(
+                timeout_secs = email_drain.as_secs(),
+                "Draining email queue worker"
+            );
+            match email_coord.shutdown(email_drain).await {
+                Ok(_) => tracing::info!("Email queue worker drained cleanly"),
+                Err(e) => tracing::warn!("Email queue drain timeout — in-flight email may be lost: {e}"),
+            }
+
+            // Then drain remaining background workers (blockchain sync, tx-monitor).
             let timeout_dur = shutdown_timeout();
             tracing::info!(
                 timeout_secs = timeout_dur.as_secs(),
-                "Waiting for background workers to drain"
+                "Waiting for remaining background workers to drain"
             );
             match coord.shutdown(timeout_dur).await {
                 Ok(_) => tracing::info!("All background workers stopped cleanly"),

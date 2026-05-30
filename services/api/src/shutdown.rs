@@ -4,6 +4,17 @@ use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
+/// Read `EMAIL_QUEUE_DRAIN_TIMEOUT_SECS` from the environment.
+/// Defaults to 60 s — more generous than the global shutdown timeout
+/// because losing in-flight emails is more expensive than delaying exit.
+pub fn email_queue_drain_timeout() -> Duration {
+    let secs = std::env::var("EMAIL_QUEUE_DRAIN_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(60);
+    Duration::from_secs(secs)
+}
+
 /// Coordinates graceful shutdown across all background workers.
 ///
 /// Workers receive a [`CancellationToken`] they poll on each iteration.
