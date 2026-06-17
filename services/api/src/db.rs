@@ -355,13 +355,25 @@ impl Database {
     }
 
     /// Remove pending (unconfirmed) subscriptions whose token has expired.
-    pub async fn newsletter_delete_expired_pending(&self, token_ttl_secs: u64) -> anyhow::Result<u64> {
+    /// `batch_size` caps the number of rows deleted per call to prevent long
+    /// table locks on large datasets; callers should loop until 0 rows are
+    /// returned if they need to drain the full backlog.
+    pub async fn newsletter_delete_expired_pending(
+        &self,
+        token_ttl_secs: u64,
+        batch_size: u64,
+    ) -> anyhow::Result<u64> {
         let result = self.with_timeout("newsletter_delete_expired_pending", sqlx::query(
             "DELETE FROM newsletter_subscribers
-             WHERE confirmed = FALSE
-               AND created_at <= NOW() - ($1 || ' seconds')::INTERVAL",
+             WHERE id IN (
+                 SELECT id FROM newsletter_subscribers
+                 WHERE confirmed = FALSE
+                   AND created_at <= NOW() - ($1 || ' seconds')::INTERVAL
+                 LIMIT $2
+             )",
         )
         .bind(token_ttl_secs as i64)
+        .bind(batch_size as i64)
         .execute(&self.pool)).await.map_err(anyhow::Error::from)?;
 
         Ok(result.rows_affected())
