@@ -214,6 +214,11 @@ pub struct Config {
     /// are considered orphaned and will be re-queued on worker startup.
     /// Default: 3600 (1 hour). Set via `EMAIL_STALE_JOB_THRESHOLD_SECS`.
     pub email_stale_job_threshold_secs: u64,
+    /// Max rows deleted per newsletter cleanup run. Default: 500.
+    /// Keep this low enough that the DELETE does not hold a table lock long
+    /// enough to noticeably delay concurrent subscriber inserts.
+    /// Set via `NEWSLETTER_CLEANUP_BATCH_SIZE`.
+    pub newsletter_cleanup_batch_size: u64,
     /// HMAC secret for signing unsubscribe tokens.
     pub unsubscribe_signing_secret: Option<String>,
     /// CORS policy.  See [`CorsConfig`] for per-field documentation.
@@ -444,6 +449,10 @@ impl Config {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(3600),
+            newsletter_cleanup_batch_size: env::var("NEWSLETTER_CLEANUP_BATCH_SIZE")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(500),
             unsubscribe_signing_secret: env::var("UNSUBSCRIBE_SIGNING_SECRET").ok(),
             cors: CorsConfig::from_env(),
             contract_key_schema: ContractKeySchema::from_env(),
