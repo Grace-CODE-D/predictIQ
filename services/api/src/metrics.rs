@@ -17,6 +17,7 @@ pub struct Metrics {
     db_pool_connections_active: IntGaugeVec,
     db_pool_connections_idle: IntGaugeVec,
     db_pool_acquire_duration: HistogramVec,
+    rate_limit_rejections: IntCounterVec,
 }
 
 impl Metrics {
@@ -110,6 +111,15 @@ impl Metrics {
         )
         .context("db_pool_acquire_duration metric")?;
 
+        let rate_limit_rejections = IntCounterVec::new(
+            prometheus::Opts::new(
+                "rate_limit_rejections_total",
+                "Requests rejected by the rate limiter, by route",
+            ),
+            &["route"],
+        )
+        .context("rate_limit_rejections metric")?;
+
         registry.register(Box::new(cache_hits.clone()))?;
         registry.register(Box::new(cache_misses.clone()))?;
         registry.register(Box::new(invalidations.clone()))?;
@@ -121,6 +131,7 @@ impl Metrics {
         registry.register(Box::new(db_pool_connections_active.clone()))?;
         registry.register(Box::new(db_pool_connections_idle.clone()))?;
         registry.register(Box::new(db_pool_acquire_duration.clone()))?;
+        registry.register(Box::new(rate_limit_rejections.clone()))?;
 
         Ok(Self {
             registry,
@@ -135,6 +146,7 @@ impl Metrics {
             db_pool_connections_active,
             db_pool_connections_idle,
             db_pool_acquire_duration,
+            rate_limit_rejections,
         })
     }
 
@@ -202,6 +214,14 @@ impl Metrics {
         self.db_pool_acquire_duration
             .with_label_values(&[pool])
             .observe(duration.as_secs_f64());
+    }
+
+    /// Increment the rate-limit rejection counter for a route.
+    /// Call this whenever a request is rejected with 429 Too Many Requests.
+    pub fn observe_rate_limit_rejection(&self, route: &str) {
+        self.rate_limit_rejections
+            .with_label_values(&[route])
+            .inc();
     }
 
     pub fn render(&self) -> anyhow::Result<String> {
