@@ -460,7 +460,8 @@ function makeId(): string {
 async function generateElevenLabs(
   text: string,
   voice: TTSVoice,
-  config: NonNullable<TTSConfig["elevenlabs"]>
+  config: NonNullable<TTSConfig["elevenlabs"]>,
+  timeoutMs: number = DEFAULT_CB_CONFIG.timeoutMs
 ): Promise<Buffer> {
   const tracer = trace.getTracer("tts-service");
   return tracer.startActiveSpan("elevenlabs.generate", async (span: Span) => {
@@ -471,6 +472,12 @@ async function generateElevenLabs(
 
       const modelId = config.modelId ?? "eleven_multilingual_v2";
       const url = `https://api.elevenlabs.io/v1/text-to-speech/${voice.voiceId}`;
+
+      // Tie an AbortController to the breaker's timeout so a timed-out call
+      // actually cancels the in-flight HTTP request instead of letting it
+      // run to completion in the background.
+      const controller = new AbortController();
+      const abortTimer = setTimeout(() => controller.abort(), timeoutMs);
 
       let res: Response;
       try {
@@ -486,12 +493,18 @@ async function generateElevenLabs(
             model_id: modelId,
             voice_settings: { stability: 0.5, similarity_boost: 0.75 },
           }),
+          signal: controller.signal,
         });
       } catch (networkErr) {
-        const msg = `Network error calling ElevenLabs: ${String(networkErr)}`;
+        const isAbort = networkErr instanceof Error && networkErr.name === "AbortError";
+        const msg = isAbort
+          ? `ElevenLabs request aborted after exceeding timeout of ${timeoutMs}ms`
+          : `Network error calling ElevenLabs: ${String(networkErr)}`;
         console.error(`[TTSService] ${msg}`);
         span.setStatus({ code: SpanStatusCode.ERROR, message: msg });
         throw new TTSProviderError("elevenlabs", msg);
+      } finally {
+        clearTimeout(abortTimer);
       }
 
       if (!res.ok) {
@@ -515,7 +528,8 @@ async function generateElevenLabs(
 async function generateGoogle(
   text: string,
   voice: TTSVoice,
-  config: NonNullable<TTSConfig["google"]>
+  config: NonNullable<TTSConfig["google"]>,
+  timeoutMs: number = DEFAULT_CB_CONFIG.timeoutMs
 ): Promise<Buffer> {
   const tracer = trace.getTracer("tts-service");
   return tracer.startActiveSpan("google.generate", async (span: Span) => {
@@ -527,7 +541,10 @@ async function generateGoogle(
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { TextToSpeechClient } = require("@google-cloud/text-to-speech") as {
         TextToSpeechClient: new (opts: object) => {
-          synthesizeSpeech: (req: object) => Promise<[{ audioContent: Buffer | string }]>;
+          synthesizeSpeech: (
+            req: object,
+            options?: object
+          ) => Promise<[{ audioContent: Buffer | string }]>;
         };
       };
 
@@ -535,11 +552,17 @@ async function generateGoogle(
 
       let response: { audioContent: Buffer | string };
       try {
-        [response] = await client.synthesizeSpeech({
-          input: { text },
-          voice: { languageCode: voice.language, name: voice.voiceId },
-          audioConfig: { audioEncoding: "MP3" },
-        });
+        // Pass a gax deadline so the underlying gRPC call is actually
+        // cancelled at the timeout boundary instead of running in the
+        // background after the circuit breaker gives up on it.
+        [response] = await client.synthesizeSpeech(
+          {
+            input: { text },
+            voice: { languageCode: voice.language, name: voice.voiceId },
+            audioConfig: { audioEncoding: "MP3" },
+          },
+          { timeout: timeoutMs }
+        );
       } catch (err) {
         const msg = `Google TTS error: ${String(err)}`;
         console.error(`[TTSService] ${msg}`);
@@ -600,6 +623,7 @@ export class TTSService {
    *   - timeoutMs      : 10 000 ms per call
    */
   private breakers: Map<TTSProvider, CircuitBreaker> = new Map();
+  private cbConfig: Required<CircuitBreakerConfig> = DEFAULT_CB_CONFIG;
 
   constructor(config: TTSConfig) {
     this.config = config;
@@ -624,6 +648,7 @@ export class TTSService {
       ...DEFAULT_CB_CONFIG,
       ...(this.config.circuitBreaker ?? {}),
     };
+    this.cbConfig = cbCfg;
 
     const opossumOptions: CircuitBreaker.Options = {
       // Trip the breaker when ≥ openThreshold failures occur in the window.
@@ -643,7 +668,7 @@ export class TTSService {
     if (this.config.elevenlabs) {
       const elBreaker = new CircuitBreaker(
         async (text: string, voice: TTSVoice) =>
-          generateElevenLabs(text, voice, this.config.elevenlabs!),
+          generateElevenLabs(text, voice, this.config.elevenlabs!, cbCfg.timeoutMs),
         { ...opossumOptions, name: "elevenlabs" }
       );
       elBreaker.on("open",     () => console.warn("[CircuitBreaker] ElevenLabs circuit OPENED — fast-failing"));
@@ -655,7 +680,7 @@ export class TTSService {
     if (this.config.google) {
       const gBreaker = new CircuitBreaker(
         async (text: string, voice: TTSVoice) =>
-          generateGoogle(text, voice, this.config.google!),
+          generateGoogle(text, voice, this.config.google!, cbCfg.timeoutMs),
         { ...opossumOptions, name: "google" }
       );
       gBreaker.on("open",     () => console.warn("[CircuitBreaker] Google TTS circuit OPENED — fast-failing"));
@@ -889,7 +914,7 @@ export class TTSService {
           throw err;
         }
       }
-      return generateElevenLabs(text, voice, this.config.elevenlabs);
+      return generateElevenLabs(text, voice, this.config.elevenlabs, this.cbConfig.timeoutMs);
     } else {
       if (!this.config.google) throw new TTSProviderError("google", "Google TTS config missing");
       if (breaker) {
@@ -902,7 +927,7 @@ export class TTSService {
           throw err;
         }
       }
-      return generateGoogle(text, voice, this.config.google);
+      return generateGoogle(text, voice, this.config.google, this.cbConfig.timeoutMs);
     }
   }
 
