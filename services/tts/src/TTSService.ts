@@ -378,6 +378,11 @@ export interface TTSConfig {
   circuitBreaker?: CircuitBreakerConfig;
   /** Retry config for transient provider errors — omit to use defaults */
   retry?: RetryConfig;
+  /**
+   * TTL in milliseconds for completed/errored jobs before they're evicted
+   * from the in-memory job store. Omit to use the default (1 hour).
+   */
+  jobTtlMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -449,8 +454,28 @@ export const VOICES: Record<string, TTSVoice> = {
 
 const jobStore = new Map<string, TTSJob>();
 
+/** Default TTL for completed/errored jobs before eviction: 1 hour. */
+export const DEFAULT_JOB_TTL_MS = 60 * 60 * 1000;
+
 function makeId(): string {
   return `tts_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Evict terminal-state (done/error) jobs older than `ttlMs`, keeping
+ * jobStore bounded under sustained traffic. Pending/processing jobs are
+ * never evicted here.
+ */
+export function evictExpiredJobs(ttlMs: number): void {
+  const now = Date.now();
+  for (const [id, job] of jobStore) {
+    if (
+      (job.status === "done" || job.status === "error") &&
+      now - job.updatedAt.getTime() >= ttlMs
+    ) {
+      jobStore.delete(id);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -635,6 +660,10 @@ export class TTSService {
     if (config.cache) {
       this.cache = new AudioCache(config.cache);
     }
+    const jobTtlMs = config.jobTtlMs ?? DEFAULT_JOB_TTL_MS;
+    // Evict completed/errored jobs past their TTL every minute to keep
+    // jobStore memory bounded (MAX_QUEUE_DEPTH only guards pending/processing).
+    setInterval(() => evictExpiredJobs(jobTtlMs), 60_000).unref();
     this._initCircuitBreakers();
   }
 
