@@ -383,6 +383,12 @@ export interface TTSConfig {
    * from the in-memory job store. Omit to use the default (1 hour).
    */
   jobTtlMs?: number;
+  /**
+   * Retention period in milliseconds for generated audio files in
+   * `outputDir` before they're deleted by the periodic cleanup sweep.
+   * Omit to use the default (24 hours).
+   */
+  audioRetentionMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -626,6 +632,38 @@ export async function mergeAudioFiles(inputPaths: string[], outputPath: string):
   return outputPath;
 }
 
+/** Default retention period for generated audio files: 24 hours. */
+export const DEFAULT_AUDIO_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Delete files in `outputDir` whose mtime is older than `retentionMs`.
+ * Guards against unbounded disk growth since saveAudio() never deletes
+ * what it writes. Missing directory or per-file races are ignored.
+ */
+export async function cleanupOldAudioFiles(outputDir: string, retentionMs: number): Promise<void> {
+  let entries: string[];
+  try {
+    entries = await fs.readdir(outputDir);
+  } catch {
+    return;
+  }
+
+  const now = Date.now();
+  await Promise.all(
+    entries.map(async (name) => {
+      const filePath = path.join(outputDir, name);
+      try {
+        const stat = await fs.stat(filePath);
+        if (stat.isFile() && now - stat.mtimeMs >= retentionMs) {
+          await fs.unlink(filePath);
+        }
+      } catch {
+        // File may have been removed concurrently; ignore.
+      }
+    })
+  );
+}
+
 // ---------------------------------------------------------------------------
 // TTSService
 // ---------------------------------------------------------------------------
@@ -664,6 +702,16 @@ export class TTSService {
     // Evict completed/errored jobs past their TTL every minute to keep
     // jobStore memory bounded (MAX_QUEUE_DEPTH only guards pending/processing).
     setInterval(() => evictExpiredJobs(jobTtlMs), 60_000).unref();
+
+    const audioRetentionMs = config.audioRetentionMs ?? DEFAULT_AUDIO_RETENTION_MS;
+    // Sweep outputDir every 15 minutes so generated .mp3 files don't
+    // accumulate forever and fill the (often small, ephemeral) disk.
+    setInterval(() => {
+      cleanupOldAudioFiles(this.config.outputDir, audioRetentionMs).catch((err) => {
+        console.error(`[TTSService] Audio cleanup sweep failed: ${String(err)}`);
+      });
+    }, 15 * 60_000).unref();
+
     this._initCircuitBreakers();
   }
 
